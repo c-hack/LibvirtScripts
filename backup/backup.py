@@ -24,6 +24,10 @@ def printNoNL(msg: str):
     sys.stdout.write(msg)
     sys.stdout.flush()
 
+def print_progress(size: int, full_size: int, base_msg: str):
+    msg = ('\r' + base_msg + ': {:.2%}' + SPACE_PADDING).format(size / full_size)
+    printNoNL(msg)
+
 def getListOfFilesForDisk(conn: libvirt.virConnect,dom: libvirt.virDomain, disk:str):
     stats = conn.domainListGetStats([dom], libvirt.VIR_DOMAIN_STATS_BLOCK, libvirt.VIR_CONNECT_GET_ALL_DOMAINS_STATS_BACKING)[0][1]
     result = []
@@ -32,28 +36,16 @@ def getListOfFilesForDisk(conn: libvirt.virConnect,dom: libvirt.virDomain, disk:
             result.append(stats['block.' + str(i) + '.path'])
     return result
 
-def copyFile(file_to_copy: str, write_dir: str):
+def addFile(file_to_copy: str, tar:tarfileProg.TarFile, inTarDir: str):
     base_msg = " Copying file " + file_to_copy
     printNoNL(base_msg + ".")
-    size = os.path.getsize(file_to_copy)
-    fsrc = open(file_to_copy, 'rb')
-    dest_file = os.path.join(write_dir, os.path.join('root', file_to_copy[1:]))
-    dest_folder = os.path.dirname(dest_file)
-    if not os.path.exists(dest_folder):
-        os.makedirs(dest_folder)
-    fdst = open(dest_file, 'wb')
-    copied = 0
-    while True:
-        buf = fsrc.read(BUF_SIZE)
-        if not buf:
-            break
-        fdst.write(buf)
-        copied += len(buf)
-        message = ('\r' + base_msg + ': {:.2%}' + SPACE_PADDING).format(copied/size)
-        printNoNL(message)
+    full_size = os.path.getsize(file_to_copy)
+
+    tar.add(file_to_copy, arcname=os.path.join(inTarDir, file_to_copy[1:]), 
+            progressCallback= lambda size: print_progress(size, full_size, base_msg))
     print("\r" + base_msg + ". Done." + SPACE_PADDING)
 
-def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, write_dir:str):
+def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, tar:tarfileProg.TarFile, inTarDir: str):
     print("##Start backing up " + disk + "##")
     tmpDir = tempfile.mkdtemp(prefix="backup_tmp_")
     
@@ -67,7 +59,7 @@ def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, write
     files_to_copy = getListOfFilesForDisk(conn, dom, disk)
     for file_to_copy in files_to_copy:
         if file_to_copy != new_snapshot_path:
-            copyFile(file_to_copy, write_dir)
+            addFile(file_to_copy, tar, inTarDir)
 
     printNoNL(" Block committing snapshot back.")
     dom.blockCommit(disk, None, None, flags=libvirt.VIR_DOMAIN_BLOCK_COMMIT_SHALLOW | libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
@@ -88,17 +80,6 @@ def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, write
     print("Done.")
 
     print("##Done backing up " + disk + "##")
-
-def get_dir_size(dir: str):
-    size = 0
-    for dirpath, _, filenames in os.walk(dir):
-        for f in filenames:
-            size += os.path.getsize(os.path.join(dir, os.path.join(dirpath, f)))
-    return size
-
-def print_tar_progress(size: int, full_size: int, base_msg: str):
-    msg = ('\r' + base_msg + ': {:.2%}' + SPACE_PADDING).format(size / full_size)
-    printNoNL(msg)
 
 
 if len(sys.argv) < 3:
@@ -130,31 +111,23 @@ for i in range(3,len(sys.argv)):
 
 time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 backup_name = "backup_" + dom.name() + "_" + time
-backup_file_name = backup_name + ".tar.gz"
-backup_file = backupDir + backup_file_name
-backup_tmp_dir = tempfile.mkdtemp(prefix=backup_name + "_")
+backup_file = os.path.join(backupDir, backup_name + ".tar.gz")
+
+tar = tarfileProg.open(name=backup_file, mode='w:gz')
 
 printNoNL("Writing backup of vm definition. ")
-xmlFile = open(backup_tmp_dir + "/vm-def.xml", 'x')
+_, xmlFile_path = tempfile.mkstemp(suffix=".xml", prefix="backup_vm_def_")
+xmlFile = open(xmlFile_path, 'w')
 xmlFile.write(dom.XMLDesc())
 xmlFile.close()
+tar.add(xmlFile_path, arcname=os.path.join(backup_name,"vm-def.xml"))
+os.remove(xmlFile_path)
 print("Done.")
 
 for disk in diskNames:
-    backupDisk(conn, dom, disk, backup_tmp_dir)
+    backupDisk(conn, dom, disk, tar, os.path.join(backup_name, "root"))
 
-base_msg = "Writing backup to tar file"
-printNoNL(base_msg + ".")
-
-full_size = get_dir_size(backup_tmp_dir)
-tar = tarfileProg.open(name=backup_file, mode='w:gz')
-tar.add(backup_tmp_dir, arcname=backup_name, progressCallback= lambda size: print_tar_progress(size, full_size, base_msg)) #filter=lambda info: print_tarinfo_progress(info, full_size, base_msg)
 tar.close()
-print("\r" + base_msg + " Done." + SPACE_PADDING)
-
-printNoNL("Cleaning up. ")
-shutil.rmtree(backup_tmp_dir)
-print("Done.")
 
 dom.__del__()
 conn.__del__()
