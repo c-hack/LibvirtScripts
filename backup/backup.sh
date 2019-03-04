@@ -17,7 +17,7 @@ function logLow {
 }
 
 function log {
-    out="$(date $LOG_PREFIX)$1"
+    out="$(date "+$LOG_PREFIX")$1"
     echo "$out"
     logLow "$out"
 }
