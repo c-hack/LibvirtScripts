@@ -74,7 +74,7 @@ log "Starting backup of $backupCount domains."
 for (( i=0; i<$backupCount; i++ )); do 
   backupArgs=${backups[$i]}
   vmName=${backupArgs%% *}
-  logName=$LOG_TMP_PATH$LOG_PREFIX"_"$(date "+%Y-%m-%d-%H-%m")"_"$vmName".log"
+  logName=$LOG_TMP_PATH"backup_"$(date "+%Y-%m-%d-%H-%m")"_"$vmName".log"
   log "------------------"
   log "Domain: $vmName"
   log "------------------"
