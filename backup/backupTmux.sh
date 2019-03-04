@@ -16,6 +16,6 @@ fi
 
 # create a new session, named $SESSION, and detach from it
 $tmux new-session -d -s $SESSION
-$tmux send-keys "$dir/backup.sh $1 ; echo 'Deleting this session in 10 seconds. Interrupt to cancel.' ; sleep 10 && $tmux kill-session -t $SESSION" 
+$tmux send-keys " $dir/backup.sh $1 ; echo 'Deleting this session in 10 seconds. Interrupt to cancel.' ; sleep 10 && $tmux kill-session -t $SESSION" 
 $tmux send-keys Enter
 $tmux attach -t $SESSION:0
