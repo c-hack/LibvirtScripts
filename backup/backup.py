@@ -81,7 +81,6 @@ def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, tar:t
 
     print("##Done backing up " + disk + "##")
 
-
 if len(sys.argv) < 3:
     fail("To few arguments.", 101)
 

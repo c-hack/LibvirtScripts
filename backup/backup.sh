@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 
-LOG_PATH="/var/log/backup/"
+LOG_TMP_PATH="/var/log/current-backup/"
 LOG_PREFIX="backup"
 
 function fail {
     echo $1
     exit $2
+}
+
+logForMail=""
+
+function logLow {
+    logger -t "c-hack-backup" "$1"
+    logForMail="$logForMail"$'\n'"$1"
+}
+
+function log {
+    out="[$(date)] $1"
+    echo "$out"
+    logLow "$out"
 }
 
 if [ $# -ne 1 ] ;then
@@ -53,28 +66,32 @@ if [ "$mailOn" == "notSet" ] ;then
   fail "Config error! No mail line!" 24
 fi
 
-fullLog=""
+backupCount=${#backups[@]}
 
-for (( i=0; i<${#backups[@]}; i++ )); do 
+log "Starting backup of $backupCount domains."
+
+for (( i=0; i<$backupCount; i++ )); do 
   backupArgs=${backups[$i]}
   vmName=${backupArgs%% *}
-  logName=$LOG_PATH$LOG_PREFIX"_"$(date "+%Y-%m-%d-%H-%m")"_"$vmName".log"
-  "$dir/backup.py" $backupArgs | "$dir/logOutput.sh" $logName ; exit=${PIPESTATUS[0]}
-  echo "------------------" >> "$logName" 
-  echo "Exit Code: $exit" >> "$logName" 
-  echo "------------------" 
-  
-  fullLog="$fullLog$(cat "$logName")"
-  
-  echo "Exit Code: $exit"
-  echo ""
-  echo ""
-  
-  if [ $exit -ne 0 ] ;then
-    logger "Backup failed for VM $vmName with code $exit"
+  logName=$LOG_TMP_PATH$LOG_PREFIX"_"$(date "+%Y-%m-%d-%H-%m")"_"$vmName".log"
+  log "------------------"
+  log "Domain: $vmName"
+  log "------------------"
+  "$dir/backup.py" $backupArgs | "$dir/logOutput.py" $logName ; exit=${PIPESTATUS[0]}
+  sync
+  sleep 1
+  logLow "$(cat $logName)"
+  log "------------------"
+  log "Exit Code: $exit"
+  if [ $exit -ne 0 ] ;then 
+    log "!!! This is not good !!!" 
   fi
+  log "------------------"
+  log ""
   exitCodes[$i]=$exit
 done
+
+find "$LOG_TMP_PATH" -type f -delete
 
 if [ "$mailOn" == "off" ] ;then
   exit 0
@@ -87,7 +104,7 @@ for (( i=0; i<${#exitCodes[@]}; i++ )) ;do
   let exitSum=exitSum+exitC
 done
 
-mailSubj="$mailSubj""Backup "
+mailSubj="$mailSubj"" Backup "
 
 if [ $exitSum -eq 0 ] ;then
   mailSubj="$mailSubj""successfull."
@@ -95,4 +112,9 @@ else
   mailSubj="$mailSubj""failed."
 fi
 
-echo "$fullLog" | mail -s "$mailSubj" $mailRecp
+log "Sending mail"
+
+echo "$logForMail" | mail -s "$mailSubj" $mailRecp
+
+log "End of backup"
+log ""
