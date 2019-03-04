@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 LOG_TMP_PATH="/var/log/current-backup/"
-LOG_PREFIX="backup"
+#Argument to date
+LOG_PREFIX="[%Y/%m/%d (%a) %H:%M:%S] "
 
 function fail {
     echo $1
@@ -16,7 +17,7 @@ function logLow {
 }
 
 function log {
-    out="[$(date)] $1"
+    out="$(date $LOG_PREFIX)$1"
     echo "$out"
     logLow "$out"
 }

@@ -5,14 +5,14 @@ import sys
 import time
 
 #Argument to strftime
-LOGFILE_PREFIX="[%Y/%m/%d (%a) %H:%M:%S] "
+LOG_PREFIX="[%Y/%m/%d (%a) %H:%M:%S] "
 
 def fail(message: str, code: int):
     print(message)
     exit(code)
 
 def writeToLog(logfile, line:str):
-    prefix = time.strftime(LOGFILE_PREFIX)
+    prefix = time.strftime(LOG_PREFIX)
     outLine = prefix + line.rstrip(' ') + '\n'
     logfile.write(outLine)
     logfile.flush()
