@@ -10,11 +10,29 @@ import subprocess
 import json
 import math
 
+import xml.etree.cElementTree as ET
+
 #Modified version of tarfile
 import tarfileProg
 
 BUF_SIZE = 16*1024
 SPACE_PADDING = ' ' * 40
+
+SNAPSHOT_XML_ROOT = "domainsnapshot"
+SNAPSHOT_XML_DISK_LIST = "disks"
+SNAPSHOT_XML_DISK = "disk"
+SNAPSHOT_XML_DISK_NAME = "name"
+SNAPSHOT_XML_DISK_SNAPSHOT = "snapshot"
+SNAPSHOT_XML_SOURCE = "source"
+SNAPSHOT_XML_SOURCE_FILE = "file"
+
+#<domainsnapshot>
+# <disks>
+#  <disk name='hda'>
+#   <source file='/storage/teamSpeak-Snap1.qcow2'/>
+#  </disk> 
+# </disks>
+#</domainsnapshot>
 
 def fail(message: str, code: int):
     print(message)
@@ -28,12 +46,21 @@ def print_progress(size: int, full_size: int, base_msg: str):
     msg = ('\r' + base_msg + ': {:.2%}' + SPACE_PADDING).format(size / full_size)
     printNoNL(msg)
 
-def getListOfFilesForDisk(conn: libvirt.virConnect,dom: libvirt.virDomain, disk:str):
-    stats = conn.domainListGetStats([dom], libvirt.VIR_DOMAIN_STATS_BLOCK, libvirt.VIR_CONNECT_GET_ALL_DOMAINS_STATS_BACKING)[0][1]
-    result = []
+def getDomainDisks(conn: libvirt.virConnect, dom: libvirt.virDomain):
+    stats = conn.domainListGetStats([dom], libvirt.VIR_DOMAIN_STATS_BLOCK , libvirt.VIR_CONNECT_GET_ALL_DOMAINS_STATS_BACKING)[0][1]
+    result = dict()
     for i in range(0, stats['block.count']):
-        if(stats['block.' + str(i) + '.name'] == disk):
-            result.append(stats['block.' + str(i) + '.path'])
+        name = stats['block.' + str(i) + '.name']
+        path = stats.get('block.' + str(i) + '.path', None)
+        backing_index = stats.get('block.' + str(i) + '.backingIndex', 0)
+        if not path:
+            # Ignore non disks
+            continue
+        if not name in result:
+            result[name] = dict()
+            result[name]["name"] = name
+            result[name]["files"] = dict()
+        result[name]["files"][backing_index] = path
     return result
 
 def addFile(file_to_copy: str, tar:tarfileProg.TarFile, inTarDir: str):
@@ -45,23 +72,49 @@ def addFile(file_to_copy: str, tar:tarfileProg.TarFile, inTarDir: str):
             progressCallback= lambda size: print_progress(size, full_size, base_msg))
     print("\r" + base_msg + ". Done." + SPACE_PADDING)
 
-def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, tar:tarfileProg.TarFile, inTarDir: str):
-    print("##Start backing up " + disk + "##")
-    tmpDir = tempfile.mkdtemp(prefix="backup_tmp_")
-    
-    printNoNL(" Creating snapshot. ")
-    #Should be done properly with bindings, but can't be bothered to research how the XML needs to look right now.
-    new_snapshot_path = tmpDir + '/' + disk + '.qcow2'
-    subprocess.run(['virsh', 'snapshot-create-as', '--no-metadata', '--domain', dom.name(), '--diskspec', 
-                    disk + ',file=' + new_snapshot_path, '--disk-only', '--atomic'], stdout=subprocess.PIPE)
-    print("Done.")
-    
-    files_to_copy = getListOfFilesForDisk(conn, dom, disk)
-    for file_to_copy in files_to_copy:
-        if file_to_copy != new_snapshot_path:
-            addFile(file_to_copy, tar, inTarDir)
+def backup_disk(disk: dict, tar: tarfileProg.TarFile, inTarDir: str):
+    print("Start backing up " + disk["name"])
+    backingIndexes = list(disk["files"].keys())
+    # As the dict is from before the tmp snapshot was made we take all.
+    for index in backingIndexes:
+            addFile(disk["files"][index], tar, inTarDir)
+    print("Done backing up " + disk["name"])
 
-    printNoNL(" Block committing snapshot back.")
+def backup_vm_def(dom: libvirt.virDomain, tar:tarfileProg.TarFile):
+    printNoNL("Writing backup of vm definition. ")
+    _, xmlFile_path = tempfile.mkstemp(suffix=".xml", prefix="backup_vm_def_")
+    xmlFile = open(xmlFile_path, 'w')
+    xmlFile.write(dom.XMLDesc())
+    xmlFile.close()
+    tar.add(xmlFile_path, arcname=os.path.join(backup_name,"vm-def.xml"))
+    os.remove(xmlFile_path)
+    print("Done.")
+
+def snapshot_domain(dom: libvirt.virDomain, tmpDir: str, disks: dict, wantedDisks: list):
+    printNoNL("Creating temporary snapshot. ")
+
+    xml_snapshot = ET.Element(SNAPSHOT_XML_ROOT)
+    xml_disks = ET.SubElement(xml_snapshot, SNAPSHOT_XML_DISK_LIST)
+    
+    for disk in disks.values():
+        params = dict()
+        params[SNAPSHOT_XML_DISK_NAME] = disk["name"]
+        if disk["name"] in wantedDisks:
+            xml_disk = ET.SubElement(xml_disks, SNAPSHOT_XML_DISK, **params)
+            new_snapshot_path = tmpDir + '/' + disk["name"] + '.qcow2'
+            source_params = dict()
+            source_params[SNAPSHOT_XML_SOURCE_FILE] = new_snapshot_path
+            ET.SubElement(xml_disk, SNAPSHOT_XML_SOURCE, **source_params)
+        else:
+            params[SNAPSHOT_XML_DISK_SNAPSHOT] = "no"
+            xml_disk = ET.SubElement(xml_disks, SNAPSHOT_XML_DISK, **params)
+    
+    xml_string = ET.tostring(xml_snapshot).decode('UTF-8')
+    dom.snapshotCreateXML(xml_string, flags = libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_NO_METADATA | libvirt. VIR_DOMAIN_SNAPSHOT_CREATE_DISK_ONLY | libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_ATOMIC)
+    print("Done.")
+
+def revert_snapshot_for_disk(dom: libvirt.virDomain, disk:str):
+    printNoNL("Block committing " + disk + ".")
     dom.blockCommit(disk, None, None, flags=libvirt.VIR_DOMAIN_BLOCK_COMMIT_SHALLOW | libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
     while True:
         info = dom.blockJobInfo(disk)
@@ -69,17 +122,17 @@ def backupDisk(conn: libvirt.virConnect, dom: libvirt.virDomain, disk:str, tar:t
         end = info["end"]
         if cur >= end:
             break
-        message = ('\r Block committing snapshot back: {:.2%}' + SPACE_PADDING).format(cur/end)
+        message = ('\rBlock committing ' + disk + ': {:.2%}' + SPACE_PADDING).format(cur/end)
         printNoNL(message)
-    printNoNL("\r Block committing snapshot back: Finishing." + SPACE_PADDING)
+    printNoNL("\rBlock committing " + disk + ": Finishing." + SPACE_PADDING)
     dom.blockJobAbort(disk, flags=libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT | libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC)
-    print("\r Block committing snapshot back. Done." + SPACE_PADDING)
-    
-    printNoNL(" Cleaning up. ")
-    shutil.rmtree(tmpDir)
-    print("Done.")
+    print("\rBlock committing " + disk + ". Done." + SPACE_PADDING)
 
-    print("##Done backing up " + disk + "##")
+def revert_snapshot_for_domain(dom: libvirt.virDomain, diskNames: list):
+    print("Starting to revert temporary snapshot.")
+    for disk in diskNames:
+        revert_snapshot_for_disk(dom, disk)
+    print("Done reverting temporary snapshot.")
 
 if len(sys.argv) < 3:
     fail("To few arguments.", 101)
@@ -114,17 +167,22 @@ backup_file = os.path.join(backupDir, backup_name + ".tar.gz")
 
 tar = tarfileProg.open(name=backup_file, mode='w:gz')
 
-printNoNL("Writing backup of vm definition. ")
-_, xmlFile_path = tempfile.mkstemp(suffix=".xml", prefix="backup_vm_def_")
-xmlFile = open(xmlFile_path, 'w')
-xmlFile.write(dom.XMLDesc())
-xmlFile.close()
-tar.add(xmlFile_path, arcname=os.path.join(backup_name,"vm-def.xml"))
-os.remove(xmlFile_path)
-print("Done.")
+backup_vm_def(dom, tar)
 
-for disk in diskNames:
-    backupDisk(conn, dom, disk, tar, os.path.join(backup_name, "root"))
+if len(diskNames) > 0:
+    tmpDir = tempfile.mkdtemp(prefix="backup_tmp_")
+    dom_disks = getDomainDisks(conn, dom)
+
+    snapshot_domain(dom, tmpDir, dom_disks, diskNames)
+
+    for name in diskNames:
+        backup_disk(dom_disks[name], tar, os.path.join(backup_name, "root"))
+    
+    revert_snapshot_for_domain(dom, diskNames)
+
+    printNoNL("Cleaning up. ")
+    shutil.rmtree(tmpDir)
+    print("Done.")
 
 tar.close()
 
