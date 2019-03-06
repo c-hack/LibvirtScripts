@@ -114,7 +114,7 @@ def snapshot_domain(dom: libvirt.virDomain, tmpDir: str, disks: dict, wantedDisk
     print("Done.")
 
 def revert_snapshot_for_disk(dom: libvirt.virDomain, disk:str):
-    printNoNL("Block committing " + disk + ".")
+    printNoNL(" Block committing " + disk + ".")
     dom.blockCommit(disk, None, None, flags=libvirt.VIR_DOMAIN_BLOCK_COMMIT_SHALLOW | libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
     while True:
         info = dom.blockJobInfo(disk)
@@ -122,11 +122,11 @@ def revert_snapshot_for_disk(dom: libvirt.virDomain, disk:str):
         end = info["end"]
         if cur >= end:
             break
-        message = ('\rBlock committing ' + disk + ': {:.2%}' + SPACE_PADDING).format(cur/end)
+        message = ('\r Block committing ' + disk + ': {:.2%}' + SPACE_PADDING).format(cur/end)
         printNoNL(message)
-    printNoNL("\rBlock committing " + disk + ": Finishing." + SPACE_PADDING)
+    printNoNL("\r Block committing " + disk + ": Finishing." + SPACE_PADDING)
     dom.blockJobAbort(disk, flags=libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT | libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC)
-    print("\rBlock committing " + disk + ". Done." + SPACE_PADDING)
+    print("\r Block committing " + disk + ". Done." + SPACE_PADDING)
 
 def revert_snapshot_for_domain(dom: libvirt.virDomain, diskNames: list):
     print("Starting to revert temporary snapshot.")
