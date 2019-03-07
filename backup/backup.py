@@ -150,41 +150,44 @@ except:
     conn.__del__()
     fail('Failed to find the domain ' + domName, 1)
 
-diskNames = []
-for i in range(3,len(sys.argv)):
-    diskName = sys.argv[i]
+try:
+
+    diskNames = []
+    for i in range(3,len(sys.argv)):
+        diskName = sys.argv[i]
+        try:
+            dom.blockInfo(diskName)
+        except:
+            dom.__del__()
+            conn.__del__()
+            fail("Failed to find the block device " + diskName + " of domain " + domName, 103)
+        diskNames.append(diskName)
+
+    time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    backup_name = "backup_" + dom.name() + "_" + time
+    backup_file = os.path.join(backupDir, backup_name + ".tar.gz")
+
+    tar = tarfileProg.open(name=backup_file, mode='w:gz')
+
     try:
-        dom.blockInfo(diskName)
-    except:
-        dom.__del__()
-        conn.__del__()
-        fail("Failed to find the block device " + diskName + " of domain " + domName, 103)
-    diskNames.append(diskName)
+        backup_vm_def(dom, tar)
 
-time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-backup_name = "backup_" + dom.name() + "_" + time
-backup_file = os.path.join(backupDir, backup_name + ".tar.gz")
+        if len(diskNames) > 0:
+            tmpDir = tempfile.mkdtemp(prefix="backup_tmp_")
+            dom_disks = getDomainDisks(conn, dom)
+            os.chmod(tmpDir, 0o777)
+            snapshot_domain(dom, tmpDir, dom_disks, diskNames)
+            try:
+                for name in diskNames:
+                    backup_disk(dom_disks[name], tar, os.path.join(backup_name, "root"))
+            finally:        
+                revert_snapshot_for_domain(dom, diskNames)
 
-tar = tarfileProg.open(name=backup_file, mode='w:gz')
-
-backup_vm_def(dom, tar)
-
-if len(diskNames) > 0:
-    tmpDir = tempfile.mkdtemp(prefix="backup_tmp_")
-    dom_disks = getDomainDisks(conn, dom)
-    os.chmod(tmpDir, 0o777)
-    snapshot_domain(dom, tmpDir, dom_disks, diskNames)
-
-    for name in diskNames:
-        backup_disk(dom_disks[name], tar, os.path.join(backup_name, "root"))
-    
-    revert_snapshot_for_domain(dom, diskNames)
-
-    printNoNL("Cleaning up. ")
-    shutil.rmtree(tmpDir)
-    print("Done.")
-
-tar.close()
-
-dom.__del__()
-conn.__del__()
+                printNoNL("Cleaning up. ")
+                shutil.rmtree(tmpDir)
+                print("Done.")
+    finally:
+        tar.close()
+finally:
+    dom.__del__()
+    conn.__del__()
