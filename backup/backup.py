@@ -115,7 +115,7 @@ def snapshot_domain(dom: libvirt.virDomain, tmpDir: str, disks: dict, wantedDisk
 
 def revert_snapshot_for_disk(dom: libvirt.virDomain, disk:str):
     printNoNL(" Block committing " + disk + ".")
-    dom.blockCommit(disk, None, None, flags=libvirt.VIR_DOMAIN_BLOCK_COMMIT_SHALLOW | libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE)
+    dom.blockCommit(disk, None, None, flags=libvirt.VIR_DOMAIN_BLOCK_COMMIT_SHALLOW | libvirt.VIR_DOMAIN_BLOCK_COMMIT_ACTIVE | libvirt.VIR_DOMAIN_BLOCK_COMMIT_DELETE)
     while True:
         info = dom.blockJobInfo(disk)
         cur = info["cur"]
@@ -172,7 +172,7 @@ backup_vm_def(dom, tar)
 if len(diskNames) > 0:
     tmpDir = tempfile.mkdtemp(prefix="backup_tmp_")
     dom_disks = getDomainDisks(conn, dom)
-
+    os.chmod(tmpDir, 0o777)
     snapshot_domain(dom, tmpDir, dom_disks, diskNames)
 
     for name in diskNames:
