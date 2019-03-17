@@ -16,6 +16,12 @@ function logLow {
     logForMail="$logForMail"$'\n'"$1"
 }
 
+function logFile {
+    while read line ;do
+      logLow "$line"
+    done < "$1"
+}
+
 function log {
     out="$(date "+$LOG_PREFIX")$1"
     echo "$out"
@@ -81,7 +87,7 @@ for (( i=0; i<$backupCount; i++ )); do
   "$dir/backup.py" $backupArgs | "$dir/logOutput.py" $logName ; exit=${PIPESTATUS[0]}
   sync
   sleep 1
-  logLow "$(cat $logName)"
+  logFile "$logName"
   log "------------------"
   log "Exit Code: $exit"
   if [ $exit -eq 111 ] ;then
