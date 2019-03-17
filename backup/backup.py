@@ -139,6 +139,7 @@ if len(sys.argv) < 3:
 
 domName = sys.argv[1]
 backupDir = sys.argv[2]
+exitCode = 0
 
 conn = libvirt.open()
 if conn == None:
@@ -180,6 +181,9 @@ try:
             try:
                 for name in diskNames:
                     backup_disk(dom_disks[name], tar, os.path.join(backup_name, "root"))
+            except KeyboardInterrupt:
+                print("Got Interrupt! Please wait for cleanup. This may take a few seconds.")
+                exitCode = 111
             finally:        
                 revert_snapshot_for_domain(dom, diskNames)
 
@@ -191,3 +195,5 @@ try:
 finally:
     dom.__del__()
     conn.__del__()
+
+sys.exit(exitCode)

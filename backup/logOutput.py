@@ -7,6 +7,8 @@ import time
 #Argument to strftime
 LOG_PREFIX="[%Y/%m/%d (%a) %H:%M:%S] "
 
+REQUIRED_INTERRUPTS = 3
+
 def fail(message: str, code: int):
     print(message)
     exit(code)
@@ -21,20 +23,26 @@ if len(sys.argv) < 2:
     fail("To few arguments.", 101)
 
 line = ""
+interruptCount=0
 
 with open(sys.argv[1], "w") as logfile:
     while True:
-        char = sys.stdin.read(1)
-        if char == '': 
-            break
-        sys.stdout.write(char)
-        if char == '\n':
-            writeToLog(logfile, line)
-            line = ""
-        elif char == '\r':
-            line = ""
-        else:
-            line += char
+        try:
+            char = sys.stdin.read(1)
+            if char == '': 
+                break
+            sys.stdout.write(char)
+            if char == '\n':
+                writeToLog(logfile, line)
+                line = ""
+            elif char == '\r':
+                line = ""
+            else:
+                line += char
+        except KeyboardInterrupt:
+            interruptCount += 1
+            if interruptCount >= REQUIRED_INTERRUPTS:
+                break
     if line != "":
          writeToLog(logfile, line)
 

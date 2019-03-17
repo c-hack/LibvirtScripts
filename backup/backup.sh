@@ -84,12 +84,17 @@ for (( i=0; i<$backupCount; i++ )); do
   logLow "$(cat $logName)"
   log "------------------"
   log "Exit Code: $exit"
-  if [ $exit -ne 0 ] ;then 
+  if [ $exit -eq 111 ] ;then
+    log "!!! Seems the backup was interrupted. Stopping here!!!"
+  elif [ $exit -ne 0 ] ;then 
     log "!!! This is not good !!!" 
   fi
   log "------------------"
   log ""
   exitCodes[$i]=$exit
+  if [ $exit -eq 111 ] ;then
+    break
+  fi
 done
 
 find "$LOG_TMP_PATH" -type f -delete
