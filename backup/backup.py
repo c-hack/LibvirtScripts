@@ -102,6 +102,10 @@ def snapshot_domain(dom: libvirt.virDomain, tmpDir: str, disks: dict, wantedDisk
         if disk["name"] in wantedDisks:
             xml_disk = ET.SubElement(xml_disks, SNAPSHOT_XML_DISK, **params)
             new_snapshot_path = tmpDir + '/' + disk["name"] + '.qcow2'
+            #Make sure file has correct owner and permissions.
+            f = open(new_snapshot_path, "w+")
+            f.close()
+            os.chmod(new_snapshot_path, 0o664)
             source_params = dict()
             source_params[SNAPSHOT_XML_SOURCE_FILE] = new_snapshot_path
             ET.SubElement(xml_disk, SNAPSHOT_XML_SOURCE, **source_params)
