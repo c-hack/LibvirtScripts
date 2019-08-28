@@ -129,7 +129,7 @@ def revert_snapshot_for_disk(dom: libvirt.virDomain, disk:str):
         message = ('\r Block committing ' + disk + ': {:.2%}' + SPACE_PADDING).format(cur/end)
         printNoNL(message)
     printNoNL("\r Block committing " + disk + ": Finishing." + SPACE_PADDING)
-    dom.blockJobAbort(disk, flags=libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT | libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_ASYNC)
+    dom.blockJobAbort(disk, flags=libvirt.VIR_DOMAIN_BLOCK_JOB_ABORT_PIVOT)
     print("\r Block committing " + disk + ". Done." + SPACE_PADDING)
 
 def revert_snapshot_for_domain(dom: libvirt.virDomain, diskNames: list):
